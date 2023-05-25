@@ -25,6 +25,7 @@
 #include <elf/elf.h>
 #include <sys/asm.h>
 #include <dl-tls.h>
+#include <dl-tlsdesc.h>
 #include <dl-irel.h>
 #include <dl-static-tls.h>
 #include <dl-machine-rel.h>
@@ -148,6 +149,43 @@ elf_machine_fixup_plt (struct link_map *map, lookup_t t,
   return *reloc_addr = value;
 }
 
+#ifdef SHARED
+/* HACK: Copied from tlsdeschtab.h to avoid dependence on the other functions we don't use. */
+inline static size_t
+map_generation (struct link_map *map)
+{
+  size_t idx = map->l_tls_modid;
+  struct dtv_slotinfo_list *listp = GL(dl_tls_dtv_slotinfo_list);
+
+  /* Find the place in the dtv slotinfo list.  */
+  do
+    {
+      /* Does it fit in the array of this list element?  */
+      if (idx < listp->len)
+	{
+	  /* We should never get here for a module in static TLS, so
+	     we can assume that, if the generation count is zero, we
+	     still haven't determined the generation count for this
+	     module.  */
+	  if (listp->slotinfo[idx].map == map && listp->slotinfo[idx].gen)
+	    return listp->slotinfo[idx].gen;
+	  else
+	    break;
+	}
+      idx -= listp->len;
+      listp = listp->next;
+    }
+  while (listp != NULL);
+
+  /* If we get to this point, the module still hasn't been assigned an
+     entry in the dtv slotinfo data structures, and it will when we're
+     done with relocations.  At that point, the module will get a
+     generation number that is one past the current generation, so
+     return exactly that.  */
+  return GL(dl_tls_generation) + 1;
+}
+#endif /* SHARED */
+
 #endif /* !dl_machine_h */
 
 #ifdef RESOLVE_MAP
@@ -216,6 +254,34 @@ elf_machine_rela (struct link_map *map, struct r_scope_elem *scope[],
 	{
 	  CHECK_STATIC_TLS (map, sym_map);
 	  *addr_field = TLS_TPREL_VALUE (sym_map, sym) + reloc->r_addend;
+	}
+      break;
+
+    case R_RISCV_TLSDESC:
+      struct tlsdesc *td = (struct tlsdesc *) addr_field;
+      if (sym == NULL)
+	{
+	  td->resolver = _dl_tlsdesc_undefweak;
+	  td->static_offset = reloc->r_addend;
+	}
+      else
+	{
+# ifndef SHARED
+	  CHECK_STATIC_TLS (map, sym_map);
+# else
+	  if (!TRY_STATIC_TLS (map, sym_map))
+	    {
+	      td->resolver = _dl_tlsdesc_dynamic;
+	      td->ti_module = sym_map->l_tls_modid;
+	      td->ti_offset = sym->st_value + reloc->r_addend;
+	      td->gen_count = map_generation (sym_map);
+	    }
+	  else
+# endif
+	    {
+	      td->resolver = _dl_tlsdesc_return;
+	      td->static_offset = TLS_TPREL_VALUE (sym_map, sym) + reloc->r_addend;
+	    }
 	}
       break;
 

@@ -1,0 +1,19 @@
+#include <stddef.h>
+#include <sysdep.h>
+#include <tls.h>
+#include <link.h>
+#include <dl-tlsdesc.h>
+#include <dl-tls.h>
+
+--
+
+-- Abuse tls.h macros to derive offsets relative to the thread register.
+
+
+TLSDESC_GEN_COUNT	offsetof(struct tlsdesc, gen_count)
+TLSDESC_MODID		offsetof(struct tlsdesc, ti_module)
+TLSDESC_MODOFF		offsetof(struct tlsdesc, ti_offset)
+TCBHEAD_DTV		offsetof(tcbhead_t, dtv) - sizeof(tcbhead_t) - TLS_TCB_OFFSET
+DTV_COUNTER		offsetof(dtv_t, counter)
+TLS_DTV_UNALLOCATED	TLS_DTV_UNALLOCATED
+TLS_DTV_OFFSET		TLS_DTV_OFFSET

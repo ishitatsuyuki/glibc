@@ -3955,6 +3955,7 @@ enum
 #define R_RISCV_TLS_DTPREL64	 9
 #define R_RISCV_TLS_TPREL32	10
 #define R_RISCV_TLS_TPREL64	11
+#define R_RISCV_TLSDESC		12
 #define R_RISCV_BRANCH		16
 #define R_RISCV_JAL		17
 #define R_RISCV_CALL		18
