@@ -6,3 +6,5 @@ libc.so: free
 libc.so: malloc
 libc.so: memset ?
 libc.so: realloc
+# The dynamic loader needs __tls_get_addr for TLS.
+ld.so: __tls_get_addr

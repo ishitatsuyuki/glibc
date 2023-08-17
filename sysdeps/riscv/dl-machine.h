@@ -25,6 +25,7 @@
 #include <elf/elf.h>
 #include <sys/asm.h>
 #include <dl-tls.h>
+#include <dl-tlsdesc.h>
 #include <dl-irel.h>
 #include <dl-static-tls.h>
 #include <dl-machine-rel.h>
@@ -50,7 +51,8 @@
      || (__WORDSIZE == 32 && (type) == R_RISCV_TLS_TPREL32)	\
      || (__WORDSIZE == 64 && (type) == R_RISCV_TLS_DTPREL64)	\
      || (__WORDSIZE == 64 && (type) == R_RISCV_TLS_DTPMOD64)	\
-     || (__WORDSIZE == 64 && (type) == R_RISCV_TLS_TPREL64)))	\
+     || (__WORDSIZE == 64 && (type) == R_RISCV_TLS_TPREL64)	\
+     || ((type) == R_RISCV_TLSDESC)))				\
    | (ELF_RTYPE_CLASS_COPY * ((type) == R_RISCV_COPY)))
 
 /* Return nonzero iff ELF header is compatible with the running host.  */
@@ -219,6 +221,34 @@ elf_machine_rela (struct link_map *map, struct r_scope_elem *scope[],
 	}
       break;
 
+    case R_RISCV_TLSDESC:
+      struct tlsdesc *td = (struct tlsdesc *) addr_field;
+      if (sym == NULL)
+	{
+	  td->entry = _dl_tlsdesc_undefweak;
+	  td->arg = (void *) reloc->r_addend;
+	}
+      else
+	{
+# ifndef SHARED
+	  CHECK_STATIC_TLS (map, sym_map);
+# else
+	  if (!TRY_STATIC_TLS (map, sym_map))
+	    {
+	      td->entry = _dl_tlsdesc_dynamic;
+	      td->arg = _dl_make_tlsdesc_dynamic (
+		  sym_map, sym->st_value + reloc->r_addend);
+	    }
+	  else
+# endif
+	    {
+	      td->entry = _dl_tlsdesc_return;
+	      td->arg
+		  = (void *) (TLS_TPREL_VALUE (sym_map, sym) + reloc->r_addend);
+	    }
+	}
+      break;
+
     case R_RISCV_COPY:
       {
 	if (__glibc_unlikely (sym == NULL))
@@ -288,6 +318,24 @@ elf_machine_lazy_rel (struct link_map *map, struct r_scope_elem *scope[],
 	}
       else
 	*reloc_addr = map->l_mach.plt;
+    }
+  else if (__glibc_likely (r_type == R_RISCV_TLSDESC))
+    {
+      const Elf_Symndx symndx = ELFW (R_SYM) (reloc->r_info);
+      const ElfW (Sym) *symtab = (const void *)D_PTR (map, l_info[DT_SYMTAB]);
+      const ElfW (Sym) *sym = &symtab[symndx];
+      const struct r_found_version *version = NULL;
+
+      if (map->l_info[VERSYMIDX (DT_VERSYM)] != NULL)
+	{
+	  const ElfW (Half) *vernum =
+	      (const void *)D_PTR (map, l_info[VERSYMIDX (DT_VERSYM)]);
+	  version = &map->l_versions[vernum[symndx] & 0x7fff];
+	}
+
+      /* Always initialize TLS descriptors completely, because lazy
+	 initialization requires synchronization at every TLS access.  */
+      elf_machine_rela (map, scope, reloc, sym, version, reloc_addr, skip_ifunc);
     }
   else if (__glibc_unlikely (r_type == R_RISCV_IRELATIVE))
     {
